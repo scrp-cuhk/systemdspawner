@@ -124,7 +124,7 @@ class SystemdSpawner(Spawner):
     user_config = Dict(
         {},
         help="""
-        Dict of configuration specific to individual groups.
+        Dict of configuration specific to individual users.
         Configuration set here takes precendent over the group configuration
         and overall configuration. Only configuration implemented within 
         systemdspawnwer are supported.   
