@@ -157,6 +157,7 @@ in your `jupyterhub_config.py` file:
 
 - **[`mem_limit`](#mem_limit)**
 - **[`cpu_limit`](#cpu_limit)**
+- **[`cpu_weight`](#cpu_weight)**
 - **[`user_workingdir`](#user_workingdir)**
 - **[`username_template`](#username_template)**
 - **[`default_shell`](#default_shell)**
@@ -169,6 +170,8 @@ in your `jupyterhub_config.py` file:
 - **[`readonly_paths`](#readonly_paths)**
 - **[`readwrite_paths`](#readwrite_paths)**
 - **[`dynamic_users`](#dynamic_users)**
+- **[`group_config`](#group_config)**
+- **[`user_config`](#user_config)**
 
 ### `mem_limit` ###
 
@@ -227,6 +230,21 @@ of how many processes each user is running, they all get equal access to the CPU
 This works out perfect for most cases, since this allows users to burst up and
 use all CPU when nobody else is using CPU & forces them to automatically yield
 when other users want to use the CPU.
+
+### `cpu_weight` ###
+
+An integer representing the share of CPU time each user can use. A user with 
+a `cpu_weight` of 200 will get 2x access to the CPU than a user with a `cpu_weight`
+of 100, which is the system default.
+
+```python
+c.SystemdSpawner.cpu_weight = 100
+```
+
+Defaults to `None`, which implicitly means 100.
+
+This info is exposed to the single-user server as the environment variable
+`CPU_WEIGHT` as an integer.
 
 ### `user_workingdir` ###
 
@@ -422,6 +440,35 @@ See https://samthursfield.wordpress.com/2015/05/07/running-firefox-in-a-cgroup-u
 an example of how this could look.
 
 For detailed configuration see the [manpage](http://man7.org/linux/man-pages/man5/systemd.slice.5.html)
+
+### `group_config` ###
+Dict of configuration specific to individual groups.
+Configuration set here takes precendent over the overall configuration.
+Only configuration implemented within systemdspawnwer are supported.   
+        
+```python
+group_name: {
+   property: value,
+   ...
+}
+```
+
+Defaults to `{}`, which means no group-specific configuration.
+
+### `user_config` ###
+Dict of configuration specific to individual users.
+Configuration set here takes precendent over the group configuration
+and overall configuration. Only configuration implemented within 
+systemdspawnwer are supported.     
+        
+```python
+username: {
+   property: value,
+   ...
+}
+```
+
+Defaults to `{}`, which means no user-specific configuration.
 
 ## Getting help ##
 
