@@ -445,10 +445,14 @@ For detailed configuration see the [manpage](http://man7.org/linux/man-pages/man
 Dict of configuration specific to individual groups.
 Configuration set here takes precendent over the overall configuration.
 Only configuration implemented within systemdspawnwer are supported.   
-        
+
+Format:
 ```python
-group_name: {
-   property: value,
+c.SystemdSpawner.group_config = {
+   'group_name': {
+         'property': value,
+         ...
+   },
    ...
 }
 ```
@@ -461,9 +465,13 @@ Configuration set here takes precendent over the group configuration
 and overall configuration. Only configuration implemented within 
 systemdspawnwer are supported.     
         
+Format:        
 ```python
-username: {
-   property: value,
+c.SystemdSpawner.user_config = {
+   'username': {
+         'property': value,
+         ...
+   },
    ...
 }
 ```

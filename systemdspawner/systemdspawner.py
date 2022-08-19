@@ -113,8 +113,11 @@ class SystemdSpawner(Spawner):
         Only configuration implemented within systemdspawnwer are supported.   
         
         Format:
-        group: {
-            property: value,
+        c.SystemdSpawner.group_config = {
+            'group_name': {
+                'property': value,
+                ...
+            },
             ...
         }
 
@@ -130,8 +133,11 @@ class SystemdSpawner(Spawner):
         systemdspawnwer are supported.   
         
         Format:
-        user: {
-            property: value,
+        c.SystemdSpawner.user_config = {
+            'username': {
+                'property': value,
+                ...
+            },
             ...
         }
 
