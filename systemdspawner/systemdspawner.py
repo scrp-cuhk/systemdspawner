@@ -322,7 +322,7 @@ class SystemdSpawner(Spawner):
                 gr_name = None
             self.overwrite_config(self.group_config.get(gr_name))
 
-        # Overwrite config with group config
+        # Overwrite config with user config
         if uid != None:
             self.overwrite_config(self.user_config.get(unix_username))
 
