@@ -1,14 +1,17 @@
+import asyncio
 import os
 import pwd
-import subprocess
-from traitlets import Bool, Unicode, List, Dict, Integer
-import asyncio
-import grp
-
-from systemdspawner import systemd
+import sys
+import warnings
 
 from jupyterhub.spawner import Spawner
 from jupyterhub.utils import random_port
+from traitlets import Bool, Dict, List, Unicode
+
+from systemdspawner import systemd
+
+SYSTEMD_REQUIRED_VERSION = 243
+SYSTEMD_LOWEST_RECOMMENDED_VERSION = 245
 
 
 class SystemdSpawner(Spawner):
@@ -23,11 +26,11 @@ class SystemdSpawner(Spawner):
         Defaults to the home directory of the user.
 
         Not respected if dynamic_users is set to True.
-        """
+        """,
     ).tag(config=True)
 
     username_template = Unicode(
-        '{USERNAME}',
+        "{USERNAME}",
         help="""
         Template for unix username each user should be spawned as.
 
@@ -36,12 +39,12 @@ class SystemdSpawner(Spawner):
         This user should already exist in the system.
 
         Not respected if dynamic_users is set to True
-        """
+        """,
     ).tag(config=True)
 
     default_shell = Unicode(
-        os.environ.get('SHELL', '/bin/bash'),
-        help='Default shell for users on the notebook terminal'
+        os.environ.get("SHELL", "/bin/bash"),
+        help="Default shell for users on the notebook terminal",
     ).tag(config=True)
 
     extra_paths = List(
@@ -54,32 +57,30 @@ class SystemdSpawner(Spawner):
     ).tag(config=True)
 
     unit_name_template = Unicode(
-        'jupyter-{USERNAME}-singleuser',
+        "jupyter-{USERNAME}-singleuser",
         help="""
         Template to use to make the systemd service names.
 
         {USERNAME} and {USERID} are expanded}
-        """
+        """,
     ).tag(config=True)
 
-    # FIXME: Do not allow enabling this for systemd versions < 227,
-    # since that is when it was introduced.
     isolate_tmp = Bool(
         False,
         help="""
         Give each notebook user their own /tmp, isolated from the system & each other
-        """
+        """,
     ).tag(config=True)
 
     isolate_devices = Bool(
         False,
         help="""
         Give each notebook user their own /dev, with a very limited set of devices mounted
-        """
+        """,
     ).tag(config=True)
 
     disable_user_sudo = Bool(
-        False,
+        True,
         help="""
         Set to true to disallow becoming root (or any other user) via sudo or other means from inside the notebook
         """,
@@ -105,45 +106,6 @@ class SystemdSpawner(Spawner):
         """,
     ).tag(config=True)
 
-    group_config = Dict(
-        {},
-        help="""
-        Dict of configuration specific to individual groups.
-        Configuration set here takes precendent over the overall configuration.
-        Only configuration implemented within systemdspawnwer are supported.   
-        
-        Format:
-        c.SystemdSpawner.group_config = {
-            'group_name': {
-                'property': value,
-                ...
-            },
-            ...
-        }
-
-        """
-    ).tag(config=True)
-
-    user_config = Dict(
-        {},
-        help="""
-        Dict of configuration specific to individual users.
-        Configuration set here takes precendent over the group configuration
-        and overall configuration. Only configuration implemented within 
-        systemdspawnwer are supported.   
-        
-        Format:
-        c.SystemdSpawner.user_config = {
-            'username': {
-                'property': value,
-                ...
-            },
-            ...
-        }
-
-        """
-    ).tag(config=True)    
-
     unit_extra_properties = Dict(
         {},
         help="""
@@ -157,7 +119,7 @@ class SystemdSpawner(Spawner):
         Used to add arbitrary properties for spawned Jupyter units.
         Read `man systemd-run` for details on per-unit properties
         available in transient units.
-        """
+        """,
     ).tag(config=True)
 
     dynamic_users = Bool(
@@ -172,9 +134,7 @@ class SystemdSpawner(Spawner):
 
         See http://0pointer.net/blog/dynamic-users-with-systemd.html for more
         information.
-
-        Requires systemd 235.
-        """
+        """,
     ).tag(config=True)
 
     slice = Unicode(
@@ -184,19 +144,7 @@ class SystemdSpawner(Spawner):
         Ensure that all users that are created are run within a given slice.
         This allow global configuration of the maximum resources that all users
         collectively can use by creating a a slice beforehand.
-        """
-    ).tag(config=True)
-
-    cpu_weight = Integer(
-        None,
-        allow_none=True,
-        help="""
-        Assign a CPU weight to the single-user notebook server.
-        Available CPU time is allocated in proportion to each process' weight.
-
-        Acceptable value: an integer between 1 to 10000. 
-        System default is 100.
-        """
+        """,
     ).tag(config=True)
 
     def __init__(self, *args, **kwargs):
@@ -204,7 +152,24 @@ class SystemdSpawner(Spawner):
         # All traitlets configurables are configured by now
         self.unit_name = self._expand_user_vars(self.unit_name_template)
 
-        self.log.debug('user:%s Initialized spawner with unit %s', self.user.name, self.unit_name)
+        self.log.debug(
+            "user:%s Initialized spawner with unit %s", self.user.name, self.unit_name
+        )
+
+        systemd_version = systemd.get_systemd_version()
+        if systemd_version is None:
+            # not found, nothing to check
+            # already warned about this in get_systemd_version
+            pass
+        elif systemd_version < SYSTEMD_REQUIRED_VERSION:
+            self.log.critical(
+                f"systemd version {SYSTEMD_REQUIRED_VERSION} or higher is required, version {systemd_version} is used"
+            )
+            sys.exit(1)
+        elif systemd_version < SYSTEMD_LOWEST_RECOMMENDED_VERSION:
+            warnings.warn(
+                f"systemd version {SYSTEMD_LOWEST_RECOMMENDED_VERSION} or higher is recommended, version {systemd_version} is used"
+            )
 
     def _expand_user_vars(self, string):
         """
@@ -214,10 +179,7 @@ class SystemdSpawner(Spawner):
           {USERNAME} -> Name of the user
           {USERID} -> UserID
         """
-        return string.format(
-            USERNAME=self.user.name,
-            USERID=self.user.id
-        )
+        return string.format(USERNAME=self.user.name, USERID=self.user.id)
 
     def get_state(self):
         """
@@ -231,7 +193,7 @@ class SystemdSpawner(Spawner):
         saved no state, so this helps with that too!
         """
         state = super().get_state()
-        state['unit_name'] = self.unit_name
+        state["unit_name"] = self.unit_name
         return state
 
     def load_state(self, state):
@@ -245,45 +207,46 @@ class SystemdSpawner(Spawner):
         JupyterHub before 0.7 also assumed your notebook was dead if it
         saved no state, so this helps with that too!
         """
-        if 'unit_name' in state:
-            self.unit_name = state['unit_name']
-
-    def overwrite_config(self,source):
-        """
-        Overwrite configuration using values from a provided dict.
-        """
-        if isinstance(source, dict):
-            self.isolate_tmp = source.get('isolate_tmp',self.isolate_tmp)
-            self.isolate_devices = source.get('isolate_devices',self.isolate_devices)
-            self.extra_paths = source.get('extra_paths',self.extra_paths)
-            self.mem_limit = source.get('mem_limit',self.mem_limit)
-            self.cpu_limit = source.get('cpu_limit',self.cpu_limit)
-            self.cpu_weight = source.get('cpu_weight',self.cpu_weight)
-            self.disable_user_sudo = source.get('disable_user_sudo',self.disable_user_sudo)
-            self.readonly_paths = source.get('readonly_paths',self.readonly_paths)
-            self.readwrite_paths = source.get('readwrite_paths',self.readwrite_paths)
-            self.unit_extra_properties = source.get('unit_extra_properties',self.unit_extra_properties)
-
+        if "unit_name" in state:
+            self.unit_name = state["unit_name"]
 
     async def start(self):
         self.port = random_port()
-        self.log.debug('user:%s Using port %s to start spawning user server', self.user.name, self.port)
+        self.log.debug(
+            "user:%s Using port %s to start spawning user server",
+            self.user.name,
+            self.port,
+        )
 
         # If there's a unit with this name running already. This means a bug in
         # JupyterHub, a remnant from a previous install or a failed service start
         # from earlier. Regardless, we kill it and start ours in its place.
         # FIXME: Carefully look at this when doing a security sweep.
         if await systemd.service_running(self.unit_name):
-            self.log.info('user:%s Unit %s already exists but not known to JupyterHub. Killing', self.user.name, self.unit_name)
+            self.log.info(
+                "user:%s Unit %s already exists but not known to JupyterHub. Killing",
+                self.user.name,
+                self.unit_name,
+            )
             await systemd.stop_service(self.unit_name)
             if await systemd.service_running(self.unit_name):
-                self.log.error('user:%s Could not stop already existing unit %s', self.user.name, self.unit_name)
-                raise Exception('Could not stop already existing unit {}'.format(self.unit_name))
+                self.log.error(
+                    "user:%s Could not stop already existing unit %s",
+                    self.user.name,
+                    self.unit_name,
+                )
+                raise Exception(
+                    f"Could not stop already existing unit {self.unit_name}"
+                )
 
         # If there's a unit with this name already but sitting in a failed state.
         # Does a reset of the state before trying to start it up again.
         if await systemd.service_failed(self.unit_name):
-            self.log.info('user:%s Unit %s in a failed state. Resetting state.', self.user.name, self.unit_name)
+            self.log.info(
+                "user:%s Unit %s in a failed state. Resetting state.",
+                self.user.name,
+                self.unit_name,
+            )
             await systemd.reset_service(self.unit_name)
 
         env = self.get_env()
@@ -291,13 +254,13 @@ class SystemdSpawner(Spawner):
         properties = {}
 
         if self.dynamic_users:
-            properties['DynamicUser'] = 'yes'
-            properties['StateDirectory'] = self._expand_user_vars('{USERNAME}')
+            properties["DynamicUser"] = "yes"
+            properties["StateDirectory"] = self._expand_user_vars("{USERNAME}")
 
             # HOME is not set by default otherwise
-            env['HOME'] = self._expand_user_vars('/var/lib/{USERNAME}')
+            env["HOME"] = self._expand_user_vars("/var/lib/{USERNAME}")
             # Set working directory to $HOME too
-            working_dir = env['HOME']
+            working_dir = env["HOME"]
             # Set uid, gid = None so we don't set them
             uid = gid = None
         else:
@@ -305,7 +268,7 @@ class SystemdSpawner(Spawner):
                 unix_username = self._expand_user_vars(self.username_template)
                 pwnam = pwd.getpwnam(unix_username)
             except KeyError:
-                self.log.exception('No user named {} found in the system'.format(unix_username))
+                self.log.exception(f"No user named {unix_username} found in the system")
                 raise
             uid = pwnam.pw_uid
             gid = pwnam.pw_gid
@@ -314,72 +277,50 @@ class SystemdSpawner(Spawner):
             else:
                 working_dir = self._expand_user_vars(self.user_workingdir)
 
-        # Overwrite config with group config
-        if gid != None:
-            try: 
-                gr_name = grp.getgrgid(gid).gr_name
-            except:
-                gr_name = None
-            self.overwrite_config(self.group_config.get(gr_name))
-
-        # Overwrite config with user config
-        if uid != None:
-            self.overwrite_config(self.user_config.get(unix_username))
-
-        # Export environment variables again
-        if self.mem_limit:
-            env['MEM_LIMIT'] = str(self.mem_limit)
-        if self.cpu_limit:
-            env['CPU_LIMIT'] = str(self.cpu_limit)
-        if self.cpu_weight:
-            env['CPU_WEIGHT'] = str(self.cpu_weight)
-
         if self.isolate_tmp:
-            properties['PrivateTmp'] = 'yes'
+            properties["PrivateTmp"] = "yes"
 
         if self.isolate_devices:
-            properties['PrivateDevices'] = 'yes'
+            properties["PrivateDevices"] = "yes"
 
         if self.extra_paths:
-            env['PATH'] = '{extrapath}:{curpath}'.format(
-                curpath=env['PATH'],
-                extrapath=':'.join(
+            env["PATH"] = "{extrapath}:{curpath}".format(
+                curpath=env["PATH"],
+                extrapath=":".join(
                     [self._expand_user_vars(p) for p in self.extra_paths]
-                )
+                ),
             )
 
-        env['SHELL'] = self.default_shell
+        env["SHELL"] = self.default_shell
 
         if self.mem_limit is not None:
-            # FIXME: Detect & use proper properties for v1 vs v2 cgroups
-            properties['MemoryAccounting'] = 'yes'
-            properties['MemoryLimit'] = self.mem_limit
+            properties["MemoryAccounting"] = "yes"
+            properties["MemoryMax"] = self.mem_limit
 
         if self.cpu_limit is not None:
-            # FIXME: Detect & use proper properties for v1 vs v2 cgroups
-            # FIXME: Make sure that the kernel supports CONFIG_CFS_BANDWIDTH
-            #        otherwise this doesn't have any effect.
-            properties['CPUAccounting'] = 'yes'
-            properties['CPUQuota'] = '{}%'.format(int(self.cpu_limit * 100))
-
-        if self.cpu_weight is not None:
-            # FIXME: Detect & use proper properties for v1 vs v2 cgroups
-            properties['CPUAccounting'] = 'yes'
-            properties['CPUWeight'] = str(self.cpu_weight)
+            # NOTE: The linux kernel must be compiled with the configuration option
+            #       CONFIG_CFS_BANDWIDTH, otherwise CPUQuota doesn't have any
+            #       effect.
+            #
+            #       This can be checked with the check-kernel.bash script in
+            #       this git repository.
+            #
+            #       ref: https://github.com/systemd/systemd/blob/v245/README#L35
+            #
+            properties["CPUAccounting"] = "yes"
+            properties["CPUQuota"] = f"{int(self.cpu_limit * 100)}%"
 
         if self.disable_user_sudo:
-            properties['NoNewPrivileges'] = 'yes'
+            properties["NoNewPrivileges"] = "yes"
 
         if self.readonly_paths is not None:
-            properties['ReadOnlyDirectories'] = [
-                self._expand_user_vars(path)
-                for path in self.readonly_paths
+            properties["ReadOnlyDirectories"] = [
+                self._expand_user_vars(path) for path in self.readonly_paths
             ]
 
         if self.readwrite_paths is not None:
-            properties['ReadWriteDirectories'] = [
-                self._expand_user_vars(path)
-                for path in self.readwrite_paths
+            properties["ReadWriteDirectories"] = [
+                self._expand_user_vars(path) for path in self.readwrite_paths
             ]
 
         for property, value in self.unit_extra_properties.items():
@@ -402,7 +343,7 @@ class SystemdSpawner(Spawner):
         for i in range(self.start_timeout):
             is_up = await self.poll()
             if is_up is None:
-                return (self.ip or '127.0.0.1', self.port)
+                return (self.ip or "127.0.0.1", self.port)
             await asyncio.sleep(1)
 
         return None

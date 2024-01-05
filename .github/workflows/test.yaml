@@ -1,0 +1,78 @@
+# This is a GitHub workflow defining a set of jobs with a set of steps.
+# ref: https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions
+#
+name: Tests
+
+on:
+  pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
+      - ".github/workflows/*.yaml"
+      - "!.github/workflows/test.yaml"
+  push:
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
+      - ".github/workflows/*.yaml"
+      - "!.github/workflows/test.yaml"
+    branches-ignore:
+      - "dependabot/**"
+      - "pre-commit-ci-update-config"
+    tags: ["**"]
+  workflow_dispatch:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # oldest supported python and jupyterhub version
+          - python-version: "3.8"
+            pip-install-spec: "jupyterhub==2.3.0 tornado==5.1.0 sqlalchemy==1.*"
+            runs-on: ubuntu-20.04
+          - python-version: "3.9"
+            pip-install-spec: "jupyterhub==2.* sqlalchemy==1.*"
+            runs-on: ubuntu-22.04
+          - python-version: "3.10"
+            pip-install-spec: "jupyterhub==3.*"
+            runs-on: ubuntu-22.04
+          - python-version: "3.11"
+            pip-install-spec: "jupyterhub==4.*"
+            runs-on: ubuntu-22.04
+
+          # latest version of python and jupyterhub (including pre-releases)
+          - python-version: "3.x"
+            pip-install-spec: "--pre jupyterhub"
+            runs-on: ubuntu-latest
+
+    runs-on: ${{ matrix.runs-on }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "${{ matrix.python-version }}"
+
+      - name: Install Node dependencies
+        run: |
+          npm install -g configurable-http-proxy
+
+      - name: Install Python dependencies
+        run: |
+          pip install ${{ matrix.pip-install-spec }}
+          pip install -e ".[test]"
+          pip freeze
+
+      - name: Run tests
+        # Tests needs to be run as root and we have to specify a non-root
+        # non-nobody system user to test with. We also need to preserve the PATH
+        # when running as root.
+        run: |
+          sudo -E "PATH=$PATH" bash -c "pytest --cov=systemdspawner --system-test-user=$(whoami)"
+
+      # GitHub action reference: https://github.com/codecov/codecov-action
+      - uses: codecov/codecov-action@v3

@@ -3,22 +3,29 @@ Test systemd wrapper utilities.
 
 Must run as root.
 """
-import tempfile
-from systemdspawner import systemd
-import pytest
 import asyncio
 import os
+import tempfile
 import time
 
+from systemdspawner import systemd
 
-@pytest.mark.asyncio
+
+def test_get_systemd_version():
+    """
+    Test getting systemd version as an integer, where the assumption for the
+    tests are that systemd is actually running at all.
+    """
+    systemd_version = systemd.get_systemd_version()
+    assert isinstance(
+        systemd_version, int
+    ), "Either systemd wasn't running, or we failed to parse the version into an integer!"
+
+
 async def test_simple_start():
-    unit_name = 'systemdspawner-unittest-' + str(time.time())
+    unit_name = "systemdspawner-unittest-" + str(time.time())
     await systemd.start_transient_service(
-        unit_name,
-        ['sleep'],
-        ['2000'],
-        working_dir='/'
+        unit_name, ["sleep"], ["2000"], working_dir="/"
     )
 
     assert await systemd.service_running(unit_name)
@@ -28,18 +35,17 @@ async def test_simple_start():
     assert not await systemd.service_running(unit_name)
 
 
-@pytest.mark.asyncio
 async def test_service_failed_reset():
     """
     Test service_failed and reset_service
     """
-    unit_name = 'systemdspawner-unittest-' + str(time.time())
+    unit_name = "systemdspawner-unittest-" + str(time.time())
     # Running a service with an invalid UID makes it enter a failed state
     await systemd.start_transient_service(
         unit_name,
-        ['sleep'],
-        ['2000'],
-        working_dir='/systemdspawner-unittest-does-not-exist'
+        ["sleep"],
+        ["2000"],
+        working_dir="/systemdspawner-unittest-does-not-exist",
     )
 
     await asyncio.sleep(0.1)
@@ -51,25 +57,23 @@ async def test_service_failed_reset():
     assert not await systemd.service_failed(unit_name)
 
 
-@pytest.mark.asyncio
 async def test_service_running_fail():
     """
     Test service_running failing when there's no service.
     """
-    unit_name = 'systemdspawner-unittest-' + str(time.time())
+    unit_name = "systemdspawner-unittest-" + str(time.time())
 
     assert not await systemd.service_running(unit_name)
 
 
-@pytest.mark.asyncio
 async def test_env_setting():
-    unit_name = 'systemdspawner-unittest-' + str(time.time())
+    unit_name = "systemdspawner-unittest-" + str(time.time())
     with tempfile.TemporaryDirectory() as d:
         os.chmod(d, 0o777)
         await systemd.start_transient_service(
             unit_name,
             ["/bin/bash"],
-            ["-c", "pwd; ls -la {0}; env > ./env; sleep 3".format(d)],
+            ["-c", f"pwd; ls -la {d}; env > ./env; sleep 3"],
             working_dir=d,
             environment_variables={
                 "TESTING_SYSTEMD_ENV_1": "TEST 1",
@@ -92,7 +96,7 @@ async def test_env_setting():
         assert os.path.exists(env_file)
         assert (os.stat(env_file).st_mode & 0o777) == 0o400
         # verify that the env had the desired effect
-        with open(os.path.join(d, 'env')) as f:
+        with open(os.path.join(d, "env")) as f:
             text = f.read()
             assert "TESTING_SYSTEMD_ENV_1=TEST 1" in text
             assert "TESTING_SYSTEMD_ENV_2=TEST 2" in text
@@ -103,52 +107,70 @@ async def test_env_setting():
         assert not os.path.exists(env_file)
 
 
-@pytest.mark.asyncio
 async def test_workdir():
-    unit_name = 'systemdspawner-unittest-' + str(time.time())
+    unit_name = "systemdspawner-unittest-" + str(time.time())
     _, env_filename = tempfile.mkstemp()
     with tempfile.TemporaryDirectory() as d:
         await systemd.start_transient_service(
             unit_name,
-            ['/bin/bash'],
-            ['-c', 'pwd > {}/pwd'.format(d)],
+            ["/bin/bash"],
+            ["-c", f"pwd > {d}/pwd"],
             working_dir=d,
         )
 
         # Wait a tiny bit for the systemd unit to complete running
         await asyncio.sleep(0.1)
- 
-        with open(os.path.join(d, 'pwd')) as f:
+
+        with open(os.path.join(d, "pwd")) as f:
             text = f.read().strip()
             assert text == d
 
 
-@pytest.mark.asyncio
-async def test_slice():
-    unit_name = 'systemdspawner-unittest-' + str(time.time())
+async def test_executable_path():
+    unit_name = "systemdspawner-unittest-" + str(time.time())
     _, env_filename = tempfile.mkstemp()
     with tempfile.TemporaryDirectory() as d:
         await systemd.start_transient_service(
             unit_name,
-            ['/bin/bash'],
-            ['-c', 'pwd > {}/pwd; sleep 10;'.format(d)],
+            ["bash"],
+            ["-c", f"pwd > {d}/pwd"],
             working_dir=d,
-            slice='user.slice',
+            environment_variables={"PATH": os.environ["PATH"]},
+        )
+
+        # Wait a tiny bit for the systemd unit to complete running
+        await asyncio.sleep(0.1)
+
+        with open(os.path.join(d, "pwd")) as f:
+            text = f.read().strip()
+            assert text == d
+
+
+async def test_slice():
+    unit_name = "systemdspawner-unittest-" + str(time.time())
+    _, env_filename = tempfile.mkstemp()
+    with tempfile.TemporaryDirectory() as d:
+        await systemd.start_transient_service(
+            unit_name,
+            ["/bin/bash"],
+            ["-c", f"pwd > {d}/pwd; sleep 10;"],
+            working_dir=d,
+            slice="user.slice",
         )
 
         # Wait a tiny bit for the systemd unit to complete running
         await asyncio.sleep(0.1)
 
         proc = await asyncio.create_subprocess_exec(
-            *['systemctl', 'status', unit_name],
+            *["systemctl", "status", unit_name],
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE)
+            stderr=asyncio.subprocess.PIPE,
+        )
 
         stdout, stderr = await proc.communicate()
-        assert b'user.slice' in stdout
+        assert b"user.slice" in stdout
 
 
-@pytest.mark.asyncio
 async def test_properties_string():
     """
     Test that setting string properties works
@@ -160,27 +182,24 @@ async def test_properties_string():
 
     This validates the Bind Mount is working, and hence properties are working.
     """
-    unit_name = 'systemdspawner-unittest-' + str(time.time())
+    unit_name = "systemdspawner-unittest-" + str(time.time())
     _, env_filename = tempfile.mkstemp()
     with tempfile.TemporaryDirectory() as d:
         await systemd.start_transient_service(
             unit_name,
-            ['/bin/bash'],
-            ['-c', 'pwd > pwd'.format(d)],
-            working_dir='/bind-test',
-            properties={
-                'BindPaths': '{}:/bind-test'.format(d)
-            }
+            ["/bin/bash"],
+            ["-c", "pwd > pwd"],
+            working_dir="/bind-test",
+            properties={"BindPaths": f"{d}:/bind-test"},
         )
 
         # Wait a tiny bit for the systemd unit to complete running
         await asyncio.sleep(0.1)
-        with open(os.path.join(d, 'pwd')) as f:
+        with open(os.path.join(d, "pwd")) as f:
             text = f.read().strip()
-            assert text == '/bind-test'
+            assert text == "/bind-test"
 
 
-@pytest.mark.asyncio
 async def test_properties_list():
     """
     Test setting multiple values for a property
@@ -195,13 +214,13 @@ async def test_properties_list():
     This validates multiple ordered ExcePreStart calls are working, and hence
     properties with lists as values are working.
     """
-    unit_name = 'systemdspawner-unittest-' + str(time.time())
+    unit_name = "systemdspawner-unittest-" + str(time.time())
     _, env_filename = tempfile.mkstemp()
     with tempfile.TemporaryDirectory() as d:
         await systemd.start_transient_service(
             unit_name,
-            ['/bin/bash'],
-            ['-c', 'pwd > test-1/test-2/pwd'],
+            ["/bin/bash"],
+            ["-c", "pwd > test-1/test-2/pwd"],
             working_dir=d,
             properties={
                 "ExecStartPre": [
@@ -212,12 +231,11 @@ async def test_properties_list():
 
         # Wait a tiny bit for the systemd unit to complete running
         await asyncio.sleep(0.1)
-        with open(os.path.join(d, 'test-1', 'test-2', 'pwd')) as f:
+        with open(os.path.join(d, "test-1", "test-2", "pwd")) as f:
             text = f.read().strip()
             assert text == d
 
 
-@pytest.mark.asyncio
 async def test_uid_gid():
     """
     Test setting uid and gid
@@ -228,21 +246,16 @@ async def test_uid_gid():
 
     This validates that setting uid sets uid, gid sets the gid
     """
-    unit_name = 'systemdspawner-unittest-' + str(time.time())
+    unit_name = "systemdspawner-unittest-" + str(time.time())
     _, env_filename = tempfile.mkstemp()
     with tempfile.TemporaryDirectory() as d:
         os.chmod(d, 0o777)
         await systemd.start_transient_service(
-            unit_name,
-            ['/bin/bash'],
-            ['-c', 'id > id'],
-            working_dir=d,
-            uid=65534,
-            gid=0
+            unit_name, ["/bin/bash"], ["-c", "id > id"], working_dir=d, uid=65534, gid=0
         )
 
         # Wait a tiny bit for the systemd unit to complete running
         await asyncio.sleep(0.2)
-        with open(os.path.join(d, 'id')) as f:
+        with open(os.path.join(d, "id")) as f:
             text = f.read().strip()
-            assert text == 'uid=65534(nobody) gid=0(root) groups=0(root)'
+            assert text == "uid=65534(nobody) gid=0(root) groups=0(root)"
