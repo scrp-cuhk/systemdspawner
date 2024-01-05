@@ -3,10 +3,11 @@ import os
 import pwd
 import sys
 import warnings
+import grp
 
 from jupyterhub.spawner import Spawner
 from jupyterhub.utils import random_port
-from traitlets import Bool, Dict, List, Unicode
+from traitlets import Bool, Dict, List, Unicode, Integer
 
 from systemdspawner import systemd
 
@@ -106,6 +107,45 @@ class SystemdSpawner(Spawner):
         """,
     ).tag(config=True)
 
+    group_config = Dict(
+        {},
+        help="""
+        Dict of configuration specific to individual groups.
+        Configuration set here takes precendent over the overall configuration.
+        Only configuration implemented within systemdspawnwer are supported.   
+        
+        Format:
+        c.SystemdSpawner.group_config = {
+            'group_name': {
+                'property': value,
+                ...
+            },
+            ...
+        }
+
+        """
+    ).tag(config=True)
+
+    user_config = Dict(
+        {},
+        help="""
+        Dict of configuration specific to individual users.
+        Configuration set here takes precendent over the group configuration
+        and overall configuration. Only configuration implemented within 
+        systemdspawnwer are supported.   
+        
+        Format:
+        c.SystemdSpawner.user_config = {
+            'username': {
+                'property': value,
+                ...
+            },
+            ...
+        }
+
+        """
+    ).tag(config=True)        
+
     unit_extra_properties = Dict(
         {},
         help="""
@@ -146,6 +186,18 @@ class SystemdSpawner(Spawner):
         collectively can use by creating a a slice beforehand.
         """,
     ).tag(config=True)
+
+    cpu_weight = Integer(
+        None,
+        allow_none=True,
+        help="""
+        Assign a CPU weight to the single-user notebook server.
+        Available CPU time is allocated in proportion to each process' weight.
+
+        Acceptable value: an integer between 1 to 10000. 
+        System default is 100.
+        """
+    ).tag(config=True)    
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -209,6 +261,22 @@ class SystemdSpawner(Spawner):
         """
         if "unit_name" in state:
             self.unit_name = state["unit_name"]
+
+    def overwrite_config(self,source):
+        """
+        Overwrite configuration using values from a provided dict.
+        """
+        if isinstance(source, dict):
+            self.isolate_tmp = source.get('isolate_tmp',self.isolate_tmp)
+            self.isolate_devices = source.get('isolate_devices',self.isolate_devices)
+            self.extra_paths = source.get('extra_paths',self.extra_paths)
+            self.mem_limit = source.get('mem_limit',self.mem_limit)
+            self.cpu_limit = source.get('cpu_limit',self.cpu_limit)
+            self.cpu_weight = source.get('cpu_weight',self.cpu_weight)
+            self.disable_user_sudo = source.get('disable_user_sudo',self.disable_user_sudo)
+            self.readonly_paths = source.get('readonly_paths',self.readonly_paths)
+            self.readwrite_paths = source.get('readwrite_paths',self.readwrite_paths)
+            self.unit_extra_properties = source.get('unit_extra_properties',self.unit_extra_properties)
 
     async def start(self):
         self.port = random_port()
@@ -277,6 +345,26 @@ class SystemdSpawner(Spawner):
             else:
                 working_dir = self._expand_user_vars(self.user_workingdir)
 
+        # Overwrite config with group config
+        if gid != None:
+            try: 
+                gr_name = grp.getgrgid(gid).gr_name
+            except:
+                gr_name = None
+            self.overwrite_config(self.group_config.get(gr_name))
+
+        # Overwrite config with user config
+        if uid != None:
+            self.overwrite_config(self.user_config.get(unix_username))
+
+        # Export environment variables again
+        if self.mem_limit:
+            env['MEM_LIMIT'] = str(self.mem_limit)
+        if self.cpu_limit:
+            env['CPU_LIMIT'] = str(self.cpu_limit)
+        if self.cpu_weight:
+            env['CPU_WEIGHT'] = str(self.cpu_weight)                
+
         if self.isolate_tmp:
             properties["PrivateTmp"] = "yes"
 
@@ -309,6 +397,10 @@ class SystemdSpawner(Spawner):
             #
             properties["CPUAccounting"] = "yes"
             properties["CPUQuota"] = f"{int(self.cpu_limit * 100)}%"
+
+        if self.cpu_weight is not None:
+            properties['CPUAccounting'] = 'yes'
+            properties['CPUWeight'] = str(self.cpu_weight)            
 
         if self.disable_user_sudo:
             properties["NoNewPrivileges"] = "yes"
